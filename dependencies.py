@@ -23,6 +23,7 @@ class Env:
     CARTOFONCIER_API_URL = os.getenv("CARTOFONCIER_API_URL")
     BROKER_URL = os.getenv("BROKER_URL")
     MICROSERVICE_SIG = os.getenv("MICROSERVICE_SIG")
+    BASE_URL = os.getenv("BASE_URL")
     ENV = os.getenv("ENV")
 
 env = Env()

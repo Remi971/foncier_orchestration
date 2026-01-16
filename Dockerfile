@@ -20,6 +20,7 @@ RUN uv pip install -r pyproject.toml --no-cache-dir --system
 
 COPY . /app
 
+ENV PYTHONPATH = '/app'
 # ENV SPATIALITE_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu/mod_spatialite
 
 # Expose the application port (FastAPI default is 8000)

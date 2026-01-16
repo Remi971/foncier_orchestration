@@ -1,12 +1,14 @@
-from fastapi import FastAPI, HTTPException, Depends, Body
+from fastapi import FastAPI, HTTPException, Body, status, HTTPException, Depends
+from sqlalchemy.orm import Session
 import boto3
 from dependencies import env, EngineDb, s3_client
 from contextlib import asynccontextmanager
 from schema.process import ProcessSchema
-from dto.process import ProcessType
-from models import Task
-from sqlalchemy.orm import Session
+from dto.process import ProcessType, ProcessStatus
+from dto.task import TaskCreationDto, TaskUpdateDto
 from task import data_acquisition_task, potentiel_calculation_task, enveloppe_generation_task
+from services.task import createNewTask, updateTask
+
 
 # origins
 
@@ -37,7 +39,7 @@ app = FastAPI(
     lifespan=init_bucket if env.ENV != "test" else None
 )
 
-database =  EngineDb()
+database = EngineDb()
 
 @app.get("/health", tags=["Root"])
 def health_check():
@@ -45,26 +47,67 @@ def health_check():
 
 @app.post("/orchestrate", tags=["Orchestration"])
 async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(database.get_db)):
-    # Save the task in the database with status "pending"
-    print("Request : ", request.type.value)
-    task = Task(
-        type=request.type.value,  # Generate a unique task ID
-        status="pending",
-        owner=request.userId
-    )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
-    print("task saved in database : ", task.id)
     # Lauch the first task in the chain (data acquisition)
+    celery_task = None
+    newTask = TaskCreationDto(
+        type = request.type.value,
+        status = ProcessStatus.IN_PROGRESS.value,
+        userId = request.userId
+    )
+    task = createNewTask(db, newTask)
     match request.type.value:
-        case ProcessType.DATA_DOWNLOAD:
-            return data_acquisition_task(task_id=task.id, db=db)
-        case ProcessType.POTENTIEL_CALCULATION:
-            return potentiel_calculation_task(task_id=task.id, db=db)
-        case ProcessType.ENVELOPPE_GENERATION:
-            return enveloppe_generation_task(task_id=task.id, db=db)
+        case ProcessType.DATA_DOWNLOAD.value:
+            try:
+                print("#### DATA ACQUISITION TASK STARTED ####")
+                celery_task = data_acquisition_task.delay(request.type.value, request.parameters.code_insee, request.userId, task.id)
+                task_update = TaskUpdateDto(
+                    status = ProcessStatus.COMPLETED.value,
+                    id = task.id
+                )
+                # updateTask(db, task_update)
+                return {"message": "Data acquisition task terminated successfully"}
+            except Exception as e:
+                print("Error in DATA ACQUISITION TASK : ", e)
+                task_update = TaskUpdateDto(
+                    status = ProcessStatus.FAILED.value,
+                    id = task.id
+                )
+                updateTask(db, task_update)
+                raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR)
+        case ProcessType.POTENTIEL_CALCULATION.value:
+            try:
+                print("#### POTENTIAL CALCULATION STARTED ####")
+                celery_task = potentiel_calculation_task.delay(task_id=task.id)
+                task_update = TaskUpdateDto(
+                    status = ProcessStatus.COMPLETED.value,
+                    id = task.id
+                )
+                updateTask(db, task_update)
+                return {"message": "Potential Calculation task terminated successfully"}
+            except Exception as e:
+                print("Error in POTENTIAL CALCULATION TASK : ", e)
+                task_update = TaskUpdateDto(
+                    status = ProcessStatus.FAILED.value,
+                    id = task.id
+                )
+                updateTask(db, task_update)
+                raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR)
+        case ProcessType.ENVELOPPE_GENERATION.value:
+            enveloppe_generation_task(task_id=task.id)
     
     return { "message": "Process started successfully", "task_id": ""}
+  
     
-    
+@app.post("/tasks/{task_id}/status", tags=["Tasks"], description="Update the status of a task")
+def update_task_status(task_id: str, status: ProcessStatus = Body(), db: Session = Depends(database.get_db)):
+    try:
+        update_task = TaskUpdateDto(
+            status = status.value,
+            id = task_id
+        )
+        print("Update task status called with : ", update_task)
+        updateTask(db, update_task)
+        return {"message": f"Task {task_id} status updated to {status.value}"}
+    except Exception as e:
+        print("Error updating task status : ", e)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR)
