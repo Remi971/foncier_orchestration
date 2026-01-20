@@ -79,7 +79,7 @@ def task_success_handler(sender=None, result=None, **kwargs):
             newTask = createNewTask(db, create_task)
             try:
                 # Launch DATA_PROCESSING : GIS service
-                response_sig = httpx.post(f"{env.MICROSERVICE_SIG}/cadastre/{code_insee}", json={task_id: str(newTask.id)})
+                response_sig = httpx.post(f"{env.MICROSERVICE_SIG}/cadastre/{code_insee}", json={"task_id": str(newTask.id)})
                 update_task = TaskUpdateDto(
                     status = ProcessStatus.COMPLETED.value,
                     id = newTask.id
@@ -88,7 +88,7 @@ def task_success_handler(sender=None, result=None, **kwargs):
                 print("RESPONSE SIG : ", response_sig)
                 # updateTask(newTask.id, "status", ProcessStatus.COMPLETED.value)
             except Exception as e:
-                print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG $$$$$")
+                print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG $$$$$ : ", e)
                 update_task = TaskUpdateDto(
                     status = ProcessStatus.FAILED.value,
                     id = newTask.id

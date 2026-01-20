@@ -3,11 +3,35 @@ import tempfile
 from dependencies import s3_client
 import zipfile
 import tarfile
+import gzip
+import shutil
 import os
+from dependencies import env
 
-def get_data(code_insee: str):
-    print("### GET DATA STARTED ###")
-    print("# Download the ZIP file PCI VECTEUR")
+def download_extract_data(url: str, code_insee: str, layer_name: str):
+    print("# Download the .GZ file PCI VECTEUR")
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        print("#Upload the .GZ file in MinIO")
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_gz:
+            for chunk in response.iter_content():
+                    tmp_gz.write(chunk)
+            tmp_gz_path = tmp_gz.name
+        
+            s3_client.upload_file(tmp_gz_path, "cartofoncier", f"{code_insee}/gz_file/{layer_name}.gz")
+        
+        print("#Extract gz file in MinIO")
+        with gzip.open(tmp_gz_path, 'rb') as f_in:
+            with tempfile.NamedTemporaryFile(delete=False) as layer:
+                shutil.copyfileobj(f_in, layer)
+                s3_client.upload_file(layer.name, env.MINIO_BUCKET_NAME, f"{code_insee}/geojson_file/{layer_name}.geojson")
+    except Exception as e:
+        print("download_extract_data ERROR : ", e)
+        raise e
+
+def download_extract_cadastre(code_insee: str):
     url = f"https://cadastre.data.gouv.fr/bundler/pci-vecteur/communes/{code_insee}/dxf"
     response = requests.get(url, stream=True)
     response.raise_for_status()
@@ -36,13 +60,31 @@ def get_data(code_insee: str):
                 if not file.endswith('.bz2'):
                     file_path = os.path.join(root, file) 
                     s3_client.upload_file(file_path, "cartofoncier", f"{code_insee}/dxf_file/{file}")
+
+def get_data(code_insee: str):
+    print("### GET DATA STARTED ###")
+    layers = [
+              {"name": "parcelle", "download": f"cadastre-{code_insee}-parcelles.json.gz"},
+              {"name": "batiments", "download": f"cadastre-{code_insee}-batiments.json.gz"}
+              ]
+    for layer in layers:
+        url = f"https://cadastre.data.gouv.fr/data/etalab-cadastre/latest/geojson/communes/{code_insee[:2]}/{code_insee}/{layer["download"]}"
+        download_extract_data(url, code_insee, layer["name"])
+    download_extract_cadastre(code_insee)
             
 
 def remove_zip_foler(code_insee: str):
+    obj_from_s3 = s3_client.list_objects(Bucket=env.MINIO_BUCKET_NAME)['Contents']
     s3_client.delete_object(
         Bucket="cartofoncier", 
         Key=f"{code_insee}-temp.zip"
     )
+    for object in obj_from_s3:
+            if object['Key'].startswith(f"{code_insee}/gz_file/"):
+                s3_client.delete_object(
+                    Bucket=env.MINIO_BUCKET_NAME,
+                    Key=object['Key']
+                )
     
 def data_processing():
     ...
