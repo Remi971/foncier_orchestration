@@ -1,20 +1,14 @@
-from fastapi import Depends
 from celery import Celery
 from celery.signals import task_success, task_failure, worker_process_init, worker_process_shutdown
 from dependencies import env, EngineDb
-from dto.process import CommuneDto
 from schema.process import ProcessSchema
 from services.data import get_data, remove_zip_foler
 from services.task import createNewTask, updateTask
 from dto.task import TaskDto, TaskCreationDto, TaskUpdateDto
 from sqlalchemy.orm import Session
-from models import Task
 from dto.process import ProcessStatus, ProcessType
-import httpx
-from fastapi import HTTPException, status, Depends
 from uuid import UUID
-import os
-import dotenv
+import requests
 
 print("DATABASE_URL : ", env.DATABASE_URL)
 
@@ -31,45 +25,39 @@ def init_worker(**kwargs):
 
 @celery.task(bind=True)
 def data_acquisition_task(self, task_type: str, code_insee: str, user_id: str, task_id: UUID):
-    ## task_type and user_id are used in task_success_handler and task_failure_handler
     get_data(code_insee)
-    
-    update_task = TaskUpdateDto(
-        status = ProcessStatus.COMPLETED.value, 
-        id = task_id
-    )
     remove_zip_foler(code_insee)
-    ## Convert Layers to geojson and upload to MinIO
-    global db
-    db = Session(database.engine)
-    print("update_task : ", update_task)
-    updateTask(db, update_task)
-    db.close()
     
 @celery.task(bind=True)
-def potentiel_calculation_task(self, data: ProcessSchema, task_id: TaskDto):
-    # Create a task in the Database Tasks Table with status "in_progress"
-    return "This is an example task."
+def potentiel_calculation_task(self, task_type: str, parameters: object, user_id: str, task_id: UUID):
+    print("CALLING SIG MICROSERVICE - Potential calculation")
+    
+    try:
+        response = requests.post(f"{env.MICROSERVICE_SIG}/potentiel", json={"task_id": task_id, "parameters": parameters})
+        response.raise_for_status()
+        return {"message": "Potential Calculation COMPLETE"}
+    except Exception as e:
+        print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG - POTENTIAL CALCULATION $$$$$ : \n", e)
+        return {"message": "Potential Calculation FAILED"}
 
 @celery.task(bind=True)
 def enveloppe_generation_task(self, data: ProcessSchema, task_id: TaskDto):
+    
     # Create a task in the Database Tasks Table with status "in_progress"
     return "This is an example task."
     
 @task_success.connect
 def task_success_handler(sender=None, result=None, **kwargs):
     task = sender
-    print("task request", task.request.args)
     db = Session(database.engine)
-    ## TODO: Find a way to update task and create a new one to launch DATA PROCESSING task (microservice SIG)
+    _, code_insee, user_id, task_id = task.request.args
+    completed_task = TaskUpdateDto(
+        status = ProcessStatus.COMPLETED.value,
+        id = task_id
+    )
+    updateTask(db, completed_task)
     match task.request.args[0]:
         case TaskDto.DATA_DOWNLOAD.value:
-            _, code_insee, user_id, task_id = task.request.args
-            completed_task = TaskUpdateDto(
-                status = ProcessStatus.COMPLETED.value,
-                id = task_id
-            )
-            updateTask(db, completed_task)
             print("Data acquisition task completed successfully.")
             create_task = TaskCreationDto(
                 type = ProcessType.DATA_PROCESSING.value,
@@ -78,8 +66,9 @@ def task_success_handler(sender=None, result=None, **kwargs):
             )
             newTask = createNewTask(db, create_task)
             try:
-                # Launch DATA_PROCESSING : GIS service
-                response_sig = httpx.post(f"{env.MICROSERVICE_SIG}/cadastre/{code_insee}", json={"task_id": str(newTask.id)})
+                # Launch DATA_PROCESSING : GIS service format Cadastre
+                response_sig = requests.post(f"{env.MICROSERVICE_SIG}/cadastre/{code_insee}", json={"task_id": str(newTask.id)})
+                response_sig.raise_for_status()
                 update_task = TaskUpdateDto(
                     status = ProcessStatus.COMPLETED.value,
                     id = newTask.id
@@ -95,7 +84,7 @@ def task_success_handler(sender=None, result=None, **kwargs):
                 )
                 updateTask(db, update_task)
                 
-        case TaskDto.POTENTIEL_CALCULATION:
+        case TaskDto.POTENTIEL_CALCULATION.value:
             print("Potentiel calculation task completed successfully.")
         case TaskDto.ENVELOPPE_GENERATION:
             print("Enveloppe generation task completed successfully.")
