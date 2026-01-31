@@ -4,15 +4,15 @@ from models import Task
 from sqlalchemy.orm import Session
 
 def createNewTask(db: Session, task: TaskCreationDto):
-    task = Task(
+    newtask = Task(
         type= task.type.value, 
         status= task.status.value if task.status else ProcessStatus.IN_PROGRESS,
         owner = task.userId,
         )
-    db.add(task)
+    db.add(newtask)
     db.commit()
-    db.refresh(task)
-    return task
+    db.refresh(newtask)
+    return newtask
 
 def updateTask(db: Session, task: TaskUpdateDto):
     current_task = db.query(Task).get({"id": task.id})

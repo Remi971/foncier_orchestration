@@ -1,8 +1,9 @@
-from sqlalchemy import Column, String, TIMESTAMP, text, ForeignKey
+from sqlalchemy import Column, String, TIMESTAMP, text, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 from dto.users import Roles
 import uuid
+from geoalchemy2 import Geometry
 
 Base = declarative_base()
 
@@ -27,3 +28,8 @@ class Task(Base):
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, default=text('now()'))
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, default=text('now()'), server_onupdate=text('now()'))
     
+class Enveloppe(Base):
+    __tablename__='enveloppe'
+    id = Column(Integer, primary_key=True)
+    commune = Column(String)
+    geom = Column(Geometry('POLYGON', srid=3857))

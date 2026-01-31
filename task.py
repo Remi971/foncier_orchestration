@@ -4,11 +4,12 @@ from dependencies import env, EngineDb
 from schema.process import ProcessSchema
 from services.data import get_data, remove_zip_foler
 from services.task import createNewTask, updateTask
+from services import sig
 from dto.task import TaskDto, TaskCreationDto, TaskUpdateDto
+from dto.process import PotentielParamsDto, EnveloppeParamsDto
 from sqlalchemy.orm import Session
 from dto.process import ProcessStatus, ProcessType
 from uuid import UUID
-import requests
 
 print("DATABASE_URL : ", env.DATABASE_URL)
 
@@ -25,30 +26,47 @@ def init_worker(**kwargs):
 
 @celery.task(bind=True)
 def data_acquisition_task(self, task_type: str, code_insee: str, user_id: str, task_id: UUID):
-    get_data(code_insee)
-    remove_zip_foler(code_insee)
+    try:
+        get_data(code_insee)
+        remove_zip_foler(code_insee)
+    except Exception as e:
+        raise e
     
 @celery.task(bind=True)
-def potentiel_calculation_task(self, task_type: str, parameters: object, user_id: str, task_id: UUID):
+def format_data_task(self, task_type: str, code_insee: str, user_id: str, task_id: UUID):
+    print("CALLING SIG MICROSERVICE - Format Data")
+    try:
+        sig.format_data(code_insee, str(task_id))
+        return {"message": "Data fomated COMPLETE"}
+    except Exception as e:
+        print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG - FORMAT DATA $$$$$")
+        raise Exception(e)
+    
+@celery.task(bind=True)
+def potentiel_calculation_task(self, task_type: str, parameters: PotentielParamsDto, user_id: str, task_id: UUID):
     print("CALLING SIG MICROSERVICE - Potential calculation")
     
     try:
-        response = requests.post(f"{env.MICROSERVICE_SIG}/potentiel", json={"task_id": task_id, "parameters": parameters})
-        response.raise_for_status()
+        sig.potential_calculation(str(task_id), parameters)
         return {"message": "Potential Calculation COMPLETE"}
     except Exception as e:
-        print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG - POTENTIAL CALCULATION $$$$$ : \n", e)
-        return {"message": "Potential Calculation FAILED"}
+        print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG - POTENTIAL CALCULATION $$$$$ : Potential Calculation FAILED")
+        raise Exception(e)
 
 @celery.task(bind=True)
-def enveloppe_generation_task(self, data: ProcessSchema, task_id: TaskDto):
-    
-    # Create a task in the Database Tasks Table with status "in_progress"
-    return "This is an example task."
+def enveloppe_generation_task(self, task_type: str, parameters: EnveloppeParamsDto, user_id: str, task_id: UUID):
+    print("CALLING SIG MICROSERVICE - Enveloppe Calculation")
+    try:
+        sig.enveloppe_calculation(str(task_id), parameters)
+        return {"message": "Enveloppe Calculation COMPLETE"}
+    except Exception as e:
+        print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG - ENVELOPPE CALCULATION $$$$")
+        raise Exception(e)
     
 @task_success.connect
 def task_success_handler(sender=None, result=None, **kwargs):
     task = sender
+    print("REQUEST", task.request)
     db = Session(database.engine)
     _, code_insee, user_id, task_id = task.request.args
     completed_task = TaskUpdateDto(
@@ -59,37 +77,37 @@ def task_success_handler(sender=None, result=None, **kwargs):
     match task.request.args[0]:
         case TaskDto.DATA_DOWNLOAD.value:
             print("Data acquisition task completed successfully.")
-            create_task = TaskCreationDto(
+            try:
+                task_update = TaskUpdateDto(
+                    status = ProcessStatus.COMPLETED.value,
+                    id = task_id
+                )
+                updateTask(db, task_update)
+                create_task = TaskCreationDto(
                 type = ProcessType.DATA_PROCESSING.value,
                 status = ProcessStatus.IN_PROGRESS.value,
                 userId = user_id
-            )
-            newTask = createNewTask(db, create_task)
-            try:
-                # Launch DATA_PROCESSING : GIS service format Cadastre
-                response_sig = requests.post(f"{env.MICROSERVICE_SIG}/cadastre/{code_insee}", json={"task_id": str(newTask.id)})
-                response_sig.raise_for_status()
-                update_task = TaskUpdateDto(
-                    status = ProcessStatus.COMPLETED.value,
-                    id = newTask.id
                 )
-                updateTask(db, update_task)
-                print("RESPONSE SIG : ", response_sig)
-                # updateTask(newTask.id, "status", ProcessStatus.COMPLETED.value)
+                newTask = createNewTask(db, create_task)
+                format_data_task.delay(ProcessType.DATA_PROCESSING.value, code_insee, user_id, newTask.id)
             except Exception as e:
-                print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG $$$$$ : ", e)
-                update_task = TaskUpdateDto(
-                    status = ProcessStatus.FAILED.value,
-                    id = newTask.id
-                )
-                updateTask(db, update_task)
-                
+                print(str(e))
+                raise e
         case TaskDto.POTENTIEL_CALCULATION.value:
             print("Potentiel calculation task completed successfully.")
-        case TaskDto.ENVELOPPE_GENERATION:
+        case TaskDto.ENVELOPPE_GENERATION.value:
             print("Enveloppe generation task completed successfully.")
-        case TaskDto.DATA_PROCESSING:
+        case TaskDto.DATA_PROCESSING.value:
             print("Data Transformation task completed successfully")
+            try:
+                task_update = TaskUpdateDto(
+                    status = ProcessStatus.COMPLETED.value,
+                    id = task_id
+                )
+                updateTask(db, task_update)
+            except Exception as e:
+                print(str(e))
+                raise e
         case _:
             print("Unknown task completed successfully.")
     db.close()

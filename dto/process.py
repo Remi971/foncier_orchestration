@@ -13,7 +13,11 @@ class ProcessType(Enum):
     POTENTIEL_CALCULATION = "POTENTIEL_CALCULATION"
     ENVELOPPE_GENERATION = "ENVELOPPE_GENERATION"
     
-class PotentielParamsDto(BaseModel):
+class CommuneDto(BaseModel):
+    code_insee: str
+    nom: str
+    
+class PotentielParamsDto(CommuneDto):
     minSurfParNue: int = 400 # Surface minimale de la parcelle non bâtie
     minSurfParBatie: int = 1000 # Surface minimale de la parcelle bâtie
     maxCes: int = 50 # CES maximum de la parcelle bâtie
@@ -31,7 +35,6 @@ class EnveloppeParamsDto(BaseModel):
     minSurfEnv: int = 30000 # Surface minimale des enveloppes
     maxSurfResidus: int = 5 # Surface maximale des résidus à supprimer
     
-class CommuneDto(BaseModel):
-    code_insee: str
-    nom: str
+class EnveloppeParameters(EnveloppeParamsDto):
+    id: str
     

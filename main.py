@@ -4,11 +4,14 @@ import boto3
 from dependencies import env, EngineDb, s3_client
 from contextlib import asynccontextmanager
 from schema.process import ProcessSchema
+from models import Enveloppe
 from dto.process import ProcessType, ProcessStatus
 from dto.task import TaskCreationDto, TaskUpdateDto
-from task import data_acquisition_task, potentiel_calculation_task, enveloppe_generation_task
+from task import data_acquisition_task, potentiel_calculation_task, enveloppe_generation_task, format_data_task
 from services.task import createNewTask, updateTask
-
+from services.enveloppe import createEnveloppe
+from pydantic import BaseModel
+import json
 
 # origins
 
@@ -59,12 +62,7 @@ async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(datab
             case ProcessType.DATA_DOWNLOAD.value:
                 try:
                     print("#### DATA ACQUISITION TASK STARTED ####")
-                    celery_task = data_acquisition_task.delay(request.type.value, request.parameters.code_insee, request.userId, task.id)
-                    task_update = TaskUpdateDto(
-                        status = ProcessStatus.COMPLETED.value,
-                        id = task.id
-                    )
-                    # updateTask(db, task_update)
+                    data_acquisition_task.delay(request.type.value, request.parameters.code_insee, request.userId, task.id)
                     return {"message": "Data acquisition task terminated successfully"}
                 except Exception as e:
                     print("Error in DATA ACQUISITION TASK : ", e)
@@ -74,11 +72,11 @@ async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(datab
                     )
                     updateTask(db, task_update)
                     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
             case ProcessType.POTENTIEL_CALCULATION.value:
-                print("PARAMETERS : ", request.type.value, request.parameters.model_dump(), request.userId, task.id)
                 try:
                     print("#### POTENTIAL CALCULATION STARTED ####")
-                    celery_task = potentiel_calculation_task.delay(request.type.value, request.parameters.model_dump(), request.userId, task.id)
+                    potentiel_calculation_task.delay(request.type.value, request.parameters.model_dump(), request.userId, task.id)
                     task_update = TaskUpdateDto(
                         status = ProcessStatus.COMPLETED.value,
                         id = task.id
@@ -94,7 +92,24 @@ async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(datab
                     updateTask(db, task_update)
                     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR)
             case ProcessType.ENVELOPPE_GENERATION.value:
-                enveloppe_generation_task(task_id=task.id)
+                try:
+                    print("#### ENVELOPPE CALCULATION STARTED ####")
+                    #Create a row in enveloppe parameters table -> get id of the new table
+                    enveloppe_generation_task(request.type.value, request.parameters.model_dump(), request.userId, task.id)
+                    task_update = TaskUpdateDto(
+                        status = ProcessStatus.COMPLETED.value,
+                        id = task.id
+                    )
+                    updateTask(db, task_update)
+                    return {"message": "Enveloppe Calculation task terminated successfully"}
+                except Exception as e:
+                    print("Error in ENVELOPPE CALCULATION TASK : ", e)
+                    task_update = TaskUpdateDto(
+                        status = ProcessStatus.FAILED.value,
+                        id = task.id
+                    )
+                    updateTask(db, task_update)
+                    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return { "message": "Process started successfully", "task_id": ""}
     except Exception as e:
@@ -115,4 +130,27 @@ def update_task_status(task_id: str, status: ProcessStatus = Body(), db: Session
         return {"message": f"Task {task_id} status updated to {status.value}"}
     except Exception as e:
         print("Error updating task status : ", e)
+        raise HTTPException(status_code=500, detail=str(e))
+  
+class DataFormat(BaseModel):
+    type: ProcessType
+    data: str
+    #parameters: EnveloppeParamsDto
+     
+    
+@app.post("/save-data", tags=["Data"], description="Save GeoJson layer to DataBase")
+def save_data(body: DataFormat = Body(), db: Session = Depends(database.get_db)):
+    try:
+        data = body.model_dump()
+        print("TYPE DATA : ", type(data["data"]))
+        geojson = json.loads(data["data"])
+        print("TYPE TYPE : ", geojson['type'])
+        print("LENGTH : ", len(geojson["features"]))
+        # for each feature of geojson["features"] add to postgresql
+        for idx, feature in enumerate(geojson["features"]):
+            createEnveloppe(db, idx, feature)
+            
+        # Save parameters in database 
+    except Exception as e:
+        print("ERROR IN SAVE DATA FROM SIG PROCESSING : ", e)
         raise HTTPException(status_code=500, detail=str(e))

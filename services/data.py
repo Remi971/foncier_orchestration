@@ -79,10 +79,5 @@ def remove_zip_foler(code_insee: str):
         Bucket="cartofoncier", 
         Key=f"{code_insee}-temp.zip"
     )
-    for object in obj_from_s3:
-            if object['Key'].startswith(f"{code_insee}/gz_filegit status/"):
-                s3_client.delete_object(
-                    Bucket=env.MINIO_BUCKET_NAME,
-                    Key=object['Key']
-                )
+    
     
