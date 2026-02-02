@@ -6,7 +6,12 @@ import tarfile
 import gzip
 import shutil
 import os
+import json
 from dependencies import env
+from dto.process import ProcessType
+from dto.data import DataFormat
+import geopandas as gpd
+from sqlalchemy import Engine
 
 def download_extract_data(url: str, code_insee: str, layer_name: str):
     print("# Download the .GZ file PCI VECTEUR")
@@ -80,4 +85,18 @@ def remove_zip_foler(code_insee: str):
         Key=f"{code_insee}-temp.zip"
     )
     
-    
+def save_to_database(engine: Engine, body: DataFormat) -> None:
+    try:
+        obj = body.model_dump()
+        type = ""
+        match obj.type:
+            case ProcessType.ENVELOPPE_GENERATION.value:
+                type == "enveloppe"
+            case ProcessType.POTENTIEL_CALCULATION.value:
+                type == "potentiel"
+        geojson = json.loads(obj["data"])
+        gdf = gpd.GeoDataFrame.from_features(geojson["features"])
+        gdf.to_crs(3857)
+        gdf.to_postgis(type, engine, if_exists='append')
+    except Exception as e:
+        raise Exception(e)

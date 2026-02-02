@@ -1,17 +1,16 @@
 from fastapi import FastAPI, HTTPException, Body, status, HTTPException, Depends
 from sqlalchemy.orm import Session
-import boto3
 from dependencies import env, EngineDb, s3_client
 from contextlib import asynccontextmanager
 from schema.process import ProcessSchema
-from models import Enveloppe
 from dto.process import ProcessType, ProcessStatus
 from dto.task import TaskCreationDto, TaskUpdateDto
+from dto.data import DataFormat
 from task import data_acquisition_task, potentiel_calculation_task, enveloppe_generation_task, format_data_task
 from services.task import createNewTask, updateTask
-from services.enveloppe import createEnveloppe
-from pydantic import BaseModel
+from services.data import save_to_database
 import json
+import geopandas as gpd
 
 # origins
 
@@ -132,25 +131,14 @@ def update_task_status(task_id: str, status: ProcessStatus = Body(), db: Session
         print("Error updating task status : ", e)
         raise HTTPException(status_code=500, detail=str(e))
   
-class DataFormat(BaseModel):
-    type: ProcessType
-    data: str
+
     #parameters: EnveloppeParamsDto
      
     
 @app.post("/save-data", tags=["Data"], description="Save GeoJson layer to DataBase")
 def save_data(body: DataFormat = Body(), db: Session = Depends(database.get_db)):
     try:
-        data = body.model_dump()
-        print("TYPE DATA : ", type(data["data"]))
-        geojson = json.loads(data["data"])
-        print("TYPE TYPE : ", geojson['type'])
-        print("LENGTH : ", len(geojson["features"]))
-        # for each feature of geojson["features"] add to postgresql
-        for idx, feature in enumerate(geojson["features"]):
-            createEnveloppe(db, idx, feature)
-            
-        # Save parameters in database 
+        save_to_database(database.engine, body)
     except Exception as e:
         print("ERROR IN SAVE DATA FROM SIG PROCESSING : ", e)
         raise HTTPException(status_code=500, detail=str(e))

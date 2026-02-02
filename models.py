@@ -28,8 +28,3 @@ class Task(Base):
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, default=text('now()'))
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, default=text('now()'), server_onupdate=text('now()'))
     
-class Enveloppe(Base):
-    __tablename__='enveloppe'
-    id = Column(Integer, primary_key=True)
-    commune = Column(String)
-    geom = Column(Geometry('POLYGON', srid=3857))
