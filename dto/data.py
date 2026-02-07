@@ -6,5 +6,5 @@ class DataAcquisitionDto(BaseModel):
     user_id: str
     
 class DataFormat(BaseModel):
-    type: ProcessType
+    type: str
     data: str

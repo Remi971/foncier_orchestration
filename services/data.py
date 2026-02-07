@@ -86,17 +86,23 @@ def remove_zip_foler(code_insee: str):
     )
     
 def save_to_database(engine: Engine, body: DataFormat) -> None:
+    print("save_to_database : BODY = ", body.model_dump()["type"])
     try:
         obj = body.model_dump()
         type = ""
-        match obj.type:
+        match obj["type"]:
             case ProcessType.ENVELOPPE_GENERATION.value:
-                type == "enveloppe"
+                type = "enveloppe"
+                
             case ProcessType.POTENTIEL_CALCULATION.value:
-                type == "potentiel"
+                type = "potentiel"
         geojson = json.loads(obj["data"])
         gdf = gpd.GeoDataFrame.from_features(geojson["features"])
-        gdf.to_crs(3857)
+        gdf.crs = 3857
+        print("CRS INITIAL : ", gdf.crs)
+        gdf.geometry = gdf.geometry.to_crs("EPSG:4326")
+        print("NEW CRS : ", gdf.crs)
+        gdf.rename_geometry('geom', inplace=True)
         gdf.to_postgis(type, engine, if_exists='append')
     except Exception as e:
         raise Exception(e)

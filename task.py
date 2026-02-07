@@ -57,7 +57,7 @@ def potentiel_calculation_task(self, task_type: str, parameters: PotentielParams
 def enveloppe_generation_task(self, task_type: str, parameters: EnveloppeParamsDto, user_id: str, task_id: UUID):
     print("CALLING SIG MICROSERVICE - Enveloppe Calculation")
     try:
-        sig.enveloppe_calculation(str(task_id), parameters)
+        sig.enveloppe_calculation(str(task_id), parameters, user_id)
         return {"message": "Enveloppe Calculation COMPLETE"}
     except Exception as e:
         print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG - ENVELOPPE CALCULATION $$$$")
