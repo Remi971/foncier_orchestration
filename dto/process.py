@@ -13,9 +13,14 @@ class ProcessType(Enum):
     POTENTIEL_CALCULATION = "POTENTIEL_CALCULATION"
     ENVELOPPE_GENERATION = "ENVELOPPE_GENERATION"
     
+class Centre(BaseModel):
+    type: str
+    coordinates: list[float]
+
 class CommuneDto(BaseModel):
-    code_insee: str
+    code: str
     nom: str
+    centre: Centre
     
 class PotentielParamsDto(CommuneDto):
     minSurfParNue: int = 400 # Surface minimale de la parcelle non bâtie

@@ -61,7 +61,8 @@ async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(datab
             case ProcessType.DATA_DOWNLOAD.value:
                 try:
                     print("#### DATA ACQUISITION TASK STARTED ####")
-                    data_acquisition_task.delay(request.type.value, request.parameters.code_insee, request.userId, task.id)
+                    print("REQUEST PARAMETERS : ", request.parameters.model_dump())
+                    data_acquisition_task.delay(request.type.value, request.parameters.model_dump(), request.userId, task.id)
                     return {"message": "Data acquisition task terminated successfully"}
                 except Exception as e:
                     print("Error in DATA ACQUISITION TASK : ", e)

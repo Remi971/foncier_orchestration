@@ -2,8 +2,8 @@ import requests
 from dependencies import env
 from dto.process import PotentielParamsDto, EnveloppeParamsDto
 
-def format_data(code_insee: str, task_id) -> None:
-    response = requests.post(f"{env.MICROSERVICE_SIG}/cadastre/{code_insee}", json={"task_id": task_id})
+def format_data(code: str, task_id) -> None:
+    response = requests.post(f"{env.MICROSERVICE_SIG}/cadastre/{code}", json={"task_id": task_id})
     response.raise_for_status()
     
 def potential_calculation(task_id: str, parameters: PotentielParamsDto):

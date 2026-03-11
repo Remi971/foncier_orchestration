@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, TIMESTAMP, text, ForeignKey, Integer
+from sqlalchemy import Column, String, TIMESTAMP, text, ForeignKey, Integer, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 from dto.users import Roles
@@ -27,4 +27,16 @@ class Task(Base):
     owner = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, default=text('now()'))
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, default=text('now()'), server_onupdate=text('now()'))
+    
+class Commune(Base):
+    __tablename__ = 'communes'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, index=True, nullable=False, unique=True, default=uuid.uuid4)
+    code = Column(String, index=True, nullable=False)
+    userId = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    nom = Column(String, index=True, nullable=False)
+    long = Column(Float, nullable=False)
+    lat = Column(Float, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, default=text('Now()'))
+
     

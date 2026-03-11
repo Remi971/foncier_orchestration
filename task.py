@@ -2,11 +2,11 @@ from celery import Celery
 from celery.signals import task_success, task_failure, worker_process_init, worker_process_shutdown
 from dependencies import env, EngineDb
 from schema.process import ProcessSchema
-from services.data import get_data, remove_zip_foler
+from services.data import get_data, remove_zip_foler, save_commune_to_db
 from services.task import createNewTask, updateTask
 from services import sig
 from dto.task import TaskDto, TaskCreationDto, TaskUpdateDto
-from dto.process import PotentielParamsDto, EnveloppeParamsDto
+from dto.process import PotentielParamsDto, EnveloppeParamsDto, CommuneDto
 from sqlalchemy.orm import Session
 from dto.process import ProcessStatus, ProcessType
 from uuid import UUID
@@ -25,18 +25,20 @@ def init_worker(**kwargs):
     # print("DB INIT : ", db)
 
 @celery.task(bind=True)
-def data_acquisition_task(self, task_type: str, code_insee: str, user_id: str, task_id: UUID):
+def data_acquisition_task(self, task_type: str, commune: CommuneDto, user_id: str, task_id: UUID):
     try:
-        get_data(code_insee)
-        remove_zip_foler(code_insee)
+        get_data(commune["code"])
+        remove_zip_foler(commune["code"])
+        save_commune_to_db(database.engine, commune, user_id)
     except Exception as e:
         raise e
     
 @celery.task(bind=True)
-def format_data_task(self, task_type: str, code_insee: str, user_id: str, task_id: UUID):
+def format_data_task(self, task_type: str, commune: CommuneDto, user_id: str, task_id: UUID):
     print("CALLING SIG MICROSERVICE - Format Data")
     try:
-        sig.format_data(code_insee, str(task_id))
+        sig.format_data(commune["code"], str(task_id))
+        # save
         return {"message": "Data fomated COMPLETE"}
     except Exception as e:
         print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG - FORMAT DATA $$$$$")
@@ -66,9 +68,9 @@ def enveloppe_generation_task(self, task_type: str, parameters: EnveloppeParamsD
 @task_success.connect
 def task_success_handler(sender=None, result=None, **kwargs):
     task = sender
-    print("REQUEST", task.request)
+    print("REQUEST", task.request.args)
     db = Session(database.engine)
-    _, code_insee, user_id, task_id = task.request.args
+    _, commune, user_id, task_id = task.request.args
     completed_task = TaskUpdateDto(
         status = ProcessStatus.COMPLETED.value,
         id = task_id
@@ -89,7 +91,7 @@ def task_success_handler(sender=None, result=None, **kwargs):
                 userId = user_id
                 )
                 newTask = createNewTask(db, create_task)
-                format_data_task.delay(ProcessType.DATA_PROCESSING.value, code_insee, user_id, newTask.id)
+                format_data_task.delay(ProcessType.DATA_PROCESSING.value, commune, user_id, newTask.id)
             except Exception as e:
                 print(str(e))
                 raise e
