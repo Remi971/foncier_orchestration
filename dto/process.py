@@ -2,6 +2,7 @@ from enum import Enum
 from pydantic import BaseModel
 
 class ProcessStatus(str, Enum):
+    STARTED = "STARTED"
     PENDING = "PENDING"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"

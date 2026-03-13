@@ -1,7 +1,7 @@
+from fastapi import Depends
 from celery import Celery
 from celery.signals import task_success, task_failure, worker_process_init, worker_process_shutdown
 from dependencies import env, EngineDb
-from schema.process import ProcessSchema
 from services.data import get_data, remove_zip_foler, save_commune_to_db
 from services.task import createNewTask, updateTask
 from services import sig
@@ -10,12 +10,13 @@ from dto.process import PotentielParamsDto, EnveloppeParamsDto, CommuneDto
 from sqlalchemy.orm import Session
 from dto.process import ProcessStatus, ProcessType
 from uuid import UUID
+from publisher import Publisher
 
 print("DATABASE_URL : ", env.DATABASE_URL)
 
 celery = Celery('orchestration', broker=env.BROKER_URL)
 database = EngineDb()
-
+publisher = Publisher()
 db = None
 
 @worker_process_init.connect
@@ -25,11 +26,14 @@ def init_worker(**kwargs):
     # print("DB INIT : ", db)
 
 @celery.task(bind=True)
-def data_acquisition_task(self, task_type: str, commune: CommuneDto, user_id: str, task_id: UUID):
+def data_acquisition_task(self, task_type: str, commune: CommuneDto, user_id: str, task_id: UUID,):
     try:
+        publisher.publish_event(env.REDIS_CHANNEL, {"type": "DATA_DOWNLOAD", "status": ProcessStatus.STARTED.value, "message": "Data acquisition task started"})
         get_data(commune["code"])
         remove_zip_foler(commune["code"])
         save_commune_to_db(database.engine, commune, user_id)
+        publisher.publish_event(env.REDIS_CHANNEL, {"type": "DATA_DOWNLOAD", "status": ProcessStatus.COMPLETED.value, "message": "Data acquisition task completed successfully"})
+        
     except Exception as e:
         raise e
     
@@ -117,15 +121,18 @@ def task_success_handler(sender=None, result=None, **kwargs):
 @task_failure.connect
 def task_failure_handler(sender=None, exception=None, **kwargs):
     task = sender
+    print("REQUEST", task.request.args)
     task_id = task.request.kwargs.get('task_id')
     
+    publisher.publish_event(env.REDIS_CHANNEL, {"type": task.request.args[0], "status": "ERROR", "message": f"Task failed: {exception}"})
+    
     match task_id:
-        case TaskDto.DATA_DOWNLOAD:
+        case TaskDto.DATA_DOWNLOAD.value:
             print(f"Data acquisition task failed: {exception}")
             # Update the task status in the Database to "failed"
-        case TaskDto.POTENTIEL_CALCULATION:
+        case TaskDto.POTENTIEL_CALCULATION.value:
             print(f"Potentiel calculation task failed: {exception}")
-        case TaskDto.ENVELOPPE_GENERATION:
+        case TaskDto.ENVELOPPE_GENERATION.value:
             print(f"Enveloppe generation task failed: {exception}")
         case _:
             print(f"Unknown task failed: {exception}")  

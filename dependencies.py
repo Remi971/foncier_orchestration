@@ -25,6 +25,10 @@ class Env:
     MICROSERVICE_SIG = os.getenv("MICROSERVICE_SIG")
     BASE_URL = os.getenv("BASE_URL")
     ENV = os.getenv("ENV")
+    REDIS_HOST = os.getenv("REDIS_HOST")
+    REDIS_PORT = os.getenv("REDIS_PORT")
+    REDIS_DB = os.getenv("REDIS_DB")
+    REDIS_CHANNEL = os.getenv("REDIS_CHANNEL")
 
 env = Env()
 
@@ -50,3 +54,4 @@ s3_client = boto3.client(
     aws_access_key_id= env.MINIO_ACCESS_KEY,
     aws_secret_access_key= env.MINIO_SECRET_KEY,
 )
+

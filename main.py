@@ -9,8 +9,7 @@ from dto.data import DataFormat
 from task import data_acquisition_task, potentiel_calculation_task, enveloppe_generation_task, format_data_task
 from services.task import createNewTask, updateTask
 from services.data import save_to_database
-import json
-import geopandas as gpd
+from publisher import Publisher
 
 # origins
 
@@ -43,6 +42,8 @@ app = FastAPI(
 
 database = EngineDb()
 
+publisher = Publisher()
+
 @app.get("/health", tags=["Root"])
 def health_check():
     return {"message": "Welcome to Orchestration of CartoFoncier app!"}
@@ -60,7 +61,7 @@ async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(datab
         match request.type.value:
             case ProcessType.DATA_DOWNLOAD.value:
                 try:
-                    print("#### DATA ACQUISITION TASK STARTED ####")
+                    # print("#### DATA ACQUISITION TASK STARTED ####")
                     print("REQUEST PARAMETERS : ", request.parameters.model_dump())
                     data_acquisition_task.delay(request.type.value, request.parameters.model_dump(), request.userId, task.id)
                     return {"message": "Data acquisition task terminated successfully"}
@@ -114,6 +115,7 @@ async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(datab
         return { "message": "Process started successfully", "task_id": ""}
     except Exception as e:
         print("Error orchestrating : ", e)
+        publisher.publish_event(env.REDIS_CHANNEL, {"type": request.type.value, "status": ProcessStatus.FAILED.value, "message": f"Process failed to start: {e}", "task_id": str(task.id) if 'task' in locals() else ""})
         raise HTTPException(status_code=500, detail=str(e))
   
     

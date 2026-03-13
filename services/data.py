@@ -8,13 +8,14 @@ import shutil
 import os
 import json
 from dependencies import env
-from dto.process import ProcessType
+from dto.process import ProcessType, ProcessStatus
 from dto.data import DataFormat
 import geopandas as gpd
-from sqlalchemy import Engine
+from sqlalchemy import Engine, update
 from sqlalchemy.orm import Session
 from models import Commune
 from dto.process import CommuneDto
+from datetime import datetime
 
 def download_extract_data(url: str, code: str, layer_name: str):
     print("# Download the .GZ file PCI VECTEUR")
@@ -74,7 +75,7 @@ def download_extract_cadastre(code: str):
         raise e
 
 def get_data(code: str):
-    print("### GET DATA STARTED ###")
+    print("### GET DATA STARTED ###")    
     layers = [
               {"name": "parcelle", "download": f"cadastre-{code}-parcelles.json.gz"},
               {"name": "batiments", "download": f"cadastre-{code}-batiments.json.gz"}
@@ -89,7 +90,10 @@ def save_commune_to_db(engine: Engine, communedto: CommuneDto, user_id: str):
         commune = Commune(code=communedto["code"], nom=communedto["nom"], long=communedto["centre"]["coordinates"][0], lat=communedto["centre"]["coordinates"][1], userId=user_id)
         session = Session(engine)
         if (session.query(Commune).filter_by(code=communedto["code"], userId=user_id).first()):
+            updateCommune = update(Commune).where(Commune.code == communedto["code"], Commune.userId == user_id).values(created_at = datetime.now())
+            session.execute(updateCommune)
             print(f"Commune with code {communedto['code']} already exists in the database for this user.")
+            session.commit()
             return
         session.add(commune)
         session.commit()
@@ -97,7 +101,6 @@ def save_commune_to_db(engine: Engine, communedto: CommuneDto, user_id: str):
         raise Exception(e)
 
 def remove_zip_foler(code: str):
-    obj_from_s3 = s3_client.list_objects(Bucket=env.MINIO_BUCKET_NAME)['Contents']
     s3_client.delete_object(
         Bucket="cartofoncier", 
         Key=f"{code}-temp.zip"
