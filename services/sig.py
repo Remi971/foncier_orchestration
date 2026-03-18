@@ -11,5 +11,10 @@ def potential_calculation(task_id: str, parameters: PotentielParamsDto):
     response.raise_for_status()
     
 def enveloppe_calculation(task_id: str, parameters: EnveloppeParamsDto, user_id: str):
-    response = requests.post(f"{env.MICROSERVICE_SIG}/enveloppe", json={"task_id": task_id, "parameters": parameters, "user_id": user_id})
-    response.raise_for_status()
+    try:
+        response = requests.post(f"{env.MICROSERVICE_SIG}/enveloppe", json={"task_id": task_id, "parameters": parameters, "user_id": user_id})
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"Error occurred while calculating enveloppe: {e}")
+        raise e

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from dto.process import ProcessStatus, ProcessType
 from uuid import UUID
 from publisher import Publisher
+from services.data import save_to_database
 
 print("DATABASE_URL : ", env.DATABASE_URL)
 
@@ -35,6 +36,7 @@ def data_acquisition_task(self, task_type: str, commune: CommuneDto, user_id: st
         publisher.publish_event(env.REDIS_CHANNEL, {"type": "DATA_DOWNLOAD", "status": ProcessStatus.COMPLETED.value, "message": "Data acquisition task completed successfully"})
         
     except Exception as e:
+        print("ERROR DATA ACQUISITION TASK")
         raise e
     
 @celery.task(bind=True)
@@ -63,8 +65,10 @@ def potentiel_calculation_task(self, task_type: str, parameters: PotentielParams
 def enveloppe_generation_task(self, task_type: str, parameters: EnveloppeParamsDto, user_id: str, task_id: UUID):
     print("CALLING SIG MICROSERVICE - Enveloppe Calculation")
     try:
-        sig.enveloppe_calculation(str(task_id), parameters, user_id)
-        return {"message": "Enveloppe Calculation COMPLETE"}
+        enveloppe = sig.enveloppe_calculation(str(task_id), parameters, user_id)
+        save_to_database(database.engine, {"type": task_type, "data": enveloppe}, "enveloppe")
+        publisher.publish_event(env.REDIS_CHANNEL, {"type": "ENVELOPPE_GENERATION", "status": ProcessStatus.COMPLETED.value, "message": "Enveloppe calculation completed successfully", "task_id": str(task_id)})
+        return {"message": "CALLING SIG MIOCROSERVICE - COMPLETE"}
     except Exception as e:
         print("$$$$$ ERROR LAUNCHING MICROSERVICE SIG - ENVELOPPE CALCULATION $$$$")
         raise Exception(e)
@@ -103,6 +107,7 @@ def task_success_handler(sender=None, result=None, **kwargs):
             print("Potentiel calculation task completed successfully.")
         case TaskDto.ENVELOPPE_GENERATION.value:
             print("Enveloppe generation task completed successfully.")
+            publisher.publish_event(env.REDIS_CHANNEL, {"type": ProcessStatus.COMPLETED.value, "message": "Enveloppe generation task completed successfully"})
         case TaskDto.DATA_PROCESSING.value:
             print("Data Transformation task completed successfully")
             try:
@@ -124,9 +129,7 @@ def task_failure_handler(sender=None, exception=None, **kwargs):
     print("REQUEST", task.request.args)
     task_id = task.request.kwargs.get('task_id')
     
-    publisher.publish_event(env.REDIS_CHANNEL, {"type": task.request.args[0], "status": "ERROR", "message": f"Task failed: {exception}"})
-    
-    match task_id:
+    match task.request.args[0]:
         case TaskDto.DATA_DOWNLOAD.value:
             print(f"Data acquisition task failed: {exception}")
             # Update the task status in the Database to "failed"
@@ -137,6 +140,8 @@ def task_failure_handler(sender=None, exception=None, **kwargs):
         case _:
             print(f"Unknown task failed: {exception}")  
             
+    publisher.publish_event(env.REDIS_CHANNEL, {"type": task.request.args[0], "status": "ERROR", "message": f"Task failed: {exception}"})
+    raise exception
 @worker_process_shutdown.connect
 def shutdown_worker(**kwargs):
     print("#### SHUTDOWN WORKER ####")

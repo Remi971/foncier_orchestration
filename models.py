@@ -39,4 +39,19 @@ class Commune(Base):
     lat = Column(Float, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, default=text('Now()'))
 
+class Enveloppe(Base):
+    __tablename__ = 'enveloppe'
     
+    id = Column(Integer, primary_key=True)
+    nom = Column(String)
+    code_insee = Column(String)
+    minSurfBati = Column(Integer)
+    bufferBati = Column(Integer)
+    dilatation = Column(Integer)
+    erosion = Column(Integer)
+    minPartInBuffer = Column(Integer)
+    maxSurfTrou = Column(Integer)
+    maxSurfEnv = Column(Integer)
+    maxSurfResidus = Column(Integer)
+    user = Column(String)
+    geom = Column(Geometry('POLYGON', srid=3857))

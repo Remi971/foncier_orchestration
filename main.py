@@ -49,7 +49,7 @@ def health_check():
     return {"message": "Welcome to Orchestration of CartoFoncier app!"}
 
 @app.post("/orchestrate", tags=["Orchestration"])
-async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(database.get_db)):
+def orchestrate(request: ProcessSchema = Body, db: Session = Depends(database.get_db)):
     try:
         celery_task = None
         newTask = TaskCreationDto(
@@ -96,13 +96,13 @@ async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(datab
                 try:
                     print("#### ENVELOPPE CALCULATION STARTED ####")
                     #Create a row in enveloppe parameters table -> get id of the new table
-                    enveloppe_generation_task(request.type.value, request.parameters.model_dump(), request.userId, task.id)
+                    enveloppe_generation_task.delay(request.type.value, request.parameters.model_dump(), request.userId, task.id)
                     task_update = TaskUpdateDto(
                         status = ProcessStatus.COMPLETED.value,
                         id = task.id
                     )
                     updateTask(db, task_update)
-                    return {"message": "Enveloppe Calculation task terminated successfully"}
+                    return {"message": "Enveloppe Calculation task in progress"}
                 except Exception as e:
                     print("Error in ENVELOPPE CALCULATION TASK : ", e)
                     task_update = TaskUpdateDto(
@@ -110,6 +110,7 @@ async def orchestrate(request: ProcessSchema = Body, db: Session = Depends(datab
                         id = task.id
                     )
                     updateTask(db, task_update)
+                    publisher.publish_event(env.REDIS_CHANNEL, {"type": request.type.value, "status": ProcessStatus.FAILED.value, "message": f"Process failed to start: {e}", "task_id": str(task.id)})
                     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return { "message": "Process started successfully", "task_id": ""}
@@ -142,6 +143,9 @@ def update_task_status(task_id: str, status: ProcessStatus = Body(), db: Session
 def save_data(body: DataFormat = Body(), db: Session = Depends(database.get_db)):
     try:
         save_to_database(database.engine, body)
+        data = body.model_dump()
+        publisher.publish_event(env.REDIS_CHANNEL, {"type": data["type"], "status": ProcessStatus.COMPLETED.value, "message": "Data saved successfully"})
+        return {"message": "Data saved successfully"}
     except Exception as e:
         print("ERROR IN SAVE DATA FROM SIG PROCESSING : ", e)
         raise HTTPException(status_code=500, detail=str(e))

@@ -11,9 +11,9 @@ from dependencies import env
 from dto.process import ProcessType, ProcessStatus
 from dto.data import DataFormat
 import geopandas as gpd
-from sqlalchemy import Engine, update
+from sqlalchemy import Engine, update, text
 from sqlalchemy.orm import Session
-from models import Commune
+from models import Commune, Enveloppe
 from dto.process import CommuneDto
 from datetime import datetime
 
@@ -106,19 +106,11 @@ def remove_zip_foler(code: str):
         Key=f"{code}-temp.zip"
     )
     
-def save_to_database(engine: Engine, body: DataFormat) -> None:
-    print("save_to_database : BODY = ", body.model_dump()["type"])
+def save_to_database(engine: Engine, body: DataFormat, name: str) -> None:
+    print("save_to_database : type BODY = ", type(body))
     try:
-        obj = body.model_dump()
-        # type = ""
-        # match obj["type"]:
-        #     case ProcessType.ENVELOPPE_GENERATION.value:
-        #         type = "enveloppe"
-                
-        #     case ProcessType.POTENTIEL_CALCULATION.value:
-        #         type = "potentiel"
-        geojson = json.loads(obj["data"])
-        gdf = gpd.GeoDataFrame.from_features(geojson["features"])
+        
+        gdf = gpd.GeoDataFrame.from_features(body["data"]["features"])
         gdf.crs = 3857
         print("CRS INITIAL : ", gdf.crs)
         gdf.geometry = gdf.geometry.to_crs("EPSG:4326")
@@ -129,6 +121,11 @@ def save_to_database(engine: Engine, body: DataFormat) -> None:
         for column in gdf.columns:
             if column not in columns_to_keep:
                 gdf.drop(column, axis=1, inplace=True)
-        gdf.to_postgis(obj["type"], engine, if_exists='append')
+        session = Session(engine)
+        print(f"Removing enveloppe where user = {gdf['user'][0]} and code = {str(gdf['code'][0])}")
+        deleteEnveloppe = text(f"DELETE FROM enveloppe WHERE enveloppe.user='{str(gdf["user"][0])}' AND enveloppe.code='{gdf["code"][0]}'")
+        session.execute(deleteEnveloppe)
+        session.commit()
+        gdf.to_postgis(name, engine, if_exists='append')
     except Exception as e:
         raise Exception(e)

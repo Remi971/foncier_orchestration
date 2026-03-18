@@ -17,7 +17,6 @@ class ProcessType(Enum):
 class Centre(BaseModel):
     type: str
     coordinates: list[float]
-
 class CommuneDto(BaseModel):
     code: str
     nom: str
@@ -31,7 +30,7 @@ class PotentielParamsDto(CommuneDto):
     distBufferTest: int = 10 # Distance du buffer pour le test
     distBufferBati: int = 8 # Distance du buffer autour du bâti
     
-class EnveloppeParamsDto(BaseModel):
+class EnveloppeParamsDto(CommuneDto):
     minSurfBati: int = 30 # Surface minimale du Bâti
     bufferBati: int = 4 # Buffer autour du bâti
     dilatation: int = 50 # Distance Buffer pour la dilatation
